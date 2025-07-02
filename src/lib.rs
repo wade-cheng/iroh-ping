@@ -1,5 +1,7 @@
-use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use iroh::{
     Endpoint, NodeAddr,
@@ -19,6 +21,12 @@ pub const ALPN: &[u8] = b"iroh/ping/0";
 #[derive(Debug, Clone)]
 pub struct Ping {
     metrics: Arc<Metrics>,
+}
+
+impl Default for Ping {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Ping {
@@ -125,8 +133,9 @@ pub struct Metrics {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use iroh::{Endpoint, Watcher, protocol::Router};
+
+    use super::*;
 
     #[tokio::test]
     async fn test_ping() -> anyhow::Result<()> {
@@ -137,7 +146,7 @@ mod tests {
         let client = Endpoint::builder().discovery_n0().bind().await?;
         let ping_client = Ping::new();
         let res = ping_client.ping(&client, addr.clone()).await?;
-        println!("ping response: {:?}", res);
+        println!("ping response: {res:?}");
 
         Ok(())
     }
