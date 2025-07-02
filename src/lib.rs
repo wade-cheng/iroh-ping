@@ -1,10 +1,14 @@
-use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
-use anyhow::Result;
-use iroh::{Endpoint, NodeAddr, endpoint::Connection, protocol::ProtocolHandler};
+use iroh::{
+    endpoint::Connection,
+    protocol::{AcceptError, ProtocolHandler},
+    Endpoint, NodeAddr,
+};
 use iroh_metrics::{Counter, MetricsGroup};
-use n0_future::boxed::BoxFuture;
 
 /// Each protocol is identified by its ALPN string.
 ///
@@ -17,6 +21,12 @@ pub const ALPN: &[u8] = b"iroh/ping/0";
 #[derive(Debug, Clone)]
 pub struct Ping {
     metrics: Arc<Metrics>,
+}
+
+impl Default for Ping {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Ping {
@@ -33,7 +43,7 @@ impl Ping {
     }
 
     /// send a ping on the provided endpoint to a given node address
-    pub async fn ping(&self, endpoint: &Endpoint, addr: NodeAddr) -> Result<Duration> {
+    pub async fn ping(&self, endpoint: &Endpoint, addr: NodeAddr) -> anyhow::Result<Duration> {
         let start = Instant::now();
         // Open a connection to the accepting node
         let conn = endpoint.connect(addr, ALPN).await?;
@@ -77,37 +87,37 @@ impl ProtocolHandler for Ping {
     ///
     /// The returned future runs on a newly spawned tokio task, so it can run as long as
     /// the connection lasts.
-    fn accept(&self, connection: Connection) -> BoxFuture<Result<()>> {
-        // We have to return a boxed future from the handler.
+    async fn accept(&self, connection: Connection) -> n0_snafu::Result<(), AcceptError> {
         let metrics = self.metrics.clone();
-        Box::pin(async move {
-            // We can get the remote's node id from the connection.
-            let node_id = connection.remote_node_id()?;
-            println!("accepted connection from {node_id}");
 
-            // Our protocol is a simple request-response protocol, so we expect the
-            // connecting peer to open a single bi-directional stream.
-            let (mut send, mut recv) = connection.accept_bi().await?;
+        // We can get the remote's node id from the connection.
+        let node_id = connection.remote_node_id()?;
+        println!("accepted connection from {node_id}");
 
-            let req = recv.read_to_end(4).await?;
-            assert_eq!(&req, b"PING");
+        // Our protocol is a simple request-response protocol, so we expect the
+        // connecting peer to open a single bi-directional stream.
+        let (mut send, mut recv) = connection.accept_bi().await?;
 
-            // send back "PONG" bytes
-            send.write_all(b"PONG").await?;
+        let req = recv.read_to_end(4).await.map_err(AcceptError::from_err)?;
+        assert_eq!(&req, b"PING");
 
-            // By calling `finish` on the send stream we signal that we will not send anything
-            // further, which makes the receive stream on the other end terminate.
-            send.finish()?;
+        // send back "PONG" bytes
+        send.write_all(b"PONG")
+            .await
+            .map_err(AcceptError::from_err)?;
 
-            // Wait until the remote closes the connection, which it does once it
-            // received the response.
-            connection.closed().await;
+        // By calling `finish` on the send stream we signal that we will not send anything
+        // further, which makes the receive stream on the other end terminate.
+        send.finish()?;
 
-            // increment count of pings we've received
-            metrics.pings_recv.inc();
+        // Wait until the remote closes the connection, which it does once it
+        // received the response.
+        connection.closed().await;
 
-            Ok(())
-        })
+        // increment count of pings we've received
+        metrics.pings_recv.inc();
+
+        Ok(())
     }
 }
 
@@ -123,21 +133,20 @@ pub struct Metrics {
 
 #[cfg(test)]
 mod tests {
+    use iroh::{protocol::Router, Endpoint, Watcher};
+
     use super::*;
-    use anyhow::Result;
-    use iroh::{Endpoint, protocol::Router};
 
     #[tokio::test]
-    async fn test_ping() -> Result<()> {
+    async fn test_ping() -> anyhow::Result<()> {
         let ep = Endpoint::builder().discovery_n0().bind().await?;
         let router = Router::builder(ep).accept(ALPN, Ping::new()).spawn();
-        let addr = router.endpoint().node_addr().await?;
+        let addr = router.endpoint().node_addr().initialized().await?;
 
         let client = Endpoint::builder().discovery_n0().bind().await?;
-        client.node_addr().await?;
         let ping_client = Ping::new();
         let res = ping_client.ping(&client, addr.clone()).await?;
-        println!("ping response: {:?}", res);
+        println!("ping response: {res:?}");
 
         Ok(())
     }
