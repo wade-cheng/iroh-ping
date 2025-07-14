@@ -55,7 +55,7 @@ impl Ping {
         send.write_all(b"PING").await?;
 
         // Signal the end of data for this particular stream
-        send.finish()?;
+        // send.finish()?;
 
         // read the response, which must be PONG as bytes
         let response = recv.read_to_end(4).await?;
@@ -106,13 +106,13 @@ impl ProtocolHandler for Ping {
             .await
             .map_err(AcceptError::from_err)?;
 
-        // By calling `finish` on the send stream we signal that we will not send anything
-        // further, which makes the receive stream on the other end terminate.
-        send.finish()?;
+        // // By calling `finish` on the send stream we signal that we will not send anything
+        // // further, which makes the receive stream on the other end terminate.
+        // send.finish()?;
 
-        // Wait until the remote closes the connection, which it does once it
-        // received the response.
-        connection.closed().await;
+        // // Wait until the remote closes the connection, which it does once it
+        // // received the response.
+        // connection.closed().await;
 
         // increment count of pings we've received
         metrics.pings_recv.inc();
