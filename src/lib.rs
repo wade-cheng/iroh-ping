@@ -9,6 +9,7 @@ use iroh::{
     Endpoint, NodeAddr,
 };
 use iroh_metrics::{Counter, MetricsGroup};
+use tokio::time::sleep;
 
 /// Each protocol is identified by its ALPN string.
 ///
@@ -48,11 +49,17 @@ impl Ping {
         // Open a connection to the accepting node
         let conn = endpoint.connect(addr, ALPN).await?;
 
+        println!("client connected to addr");
+
         // Open a bidirectional QUIC stream
         let (mut send, mut recv) = conn.open_bi().await?;
 
+        println!("client opened bidir stream");
+
         // Send some data to be pinged
         send.write_all(b"PING").await?;
+
+        println!("client wrote ping");
 
         // Signal the end of data for this particular stream
         // send.finish()?;
@@ -61,24 +68,30 @@ impl Ping {
         let response = recv.read_to_end(4).await?;
         assert_eq!(&response, b"PONG");
 
-        // Explicitly close the whole connection.
-        conn.close(0u32.into(), b"bye!");
+        println!("client received pong");
 
-        // The above call only queues a close message to be sent (see how it's not async!).
-        // We need to actually call this to make sure this message is sent out.
-        endpoint.close().await;
+        loop {
+            sleep(Duration::from_secs(10)).await;
+        }
 
-        // at this point we've successfully pinged, mark the metric
-        self.metrics.pings_sent.inc();
+        // // Explicitly close the whole connection.
+        // conn.close(0u32.into(), b"bye!");
 
-        // If we don't call this, but continue using the endpoint, we then the queued
-        // close call will eventually be picked up and sent.
-        // But always try to wait for endpoint.close().await to go through before dropping
-        // the endpoint to ensure any queued messages are sent through and connections are
-        // closed gracefully.
-        Ok(Duration::from_millis(
-            Instant::now().duration_since(start).as_millis() as u64,
-        ))
+        // // The above call only queues a close message to be sent (see how it's not async!).
+        // // We need to actually call this to make sure this message is sent out.
+        // endpoint.close().await;
+
+        // // at this point we've successfully pinged, mark the metric
+        // self.metrics.pings_sent.inc();
+
+        // // If we don't call this, but continue using the endpoint, we then the queued
+        // // close call will eventually be picked up and sent.
+        // // But always try to wait for endpoint.close().await to go through before dropping
+        // // the endpoint to ensure any queued messages are sent through and connections are
+        // // closed gracefully.
+        // Ok(Duration::from_millis(
+        //     Instant::now().duration_since(start).as_millis() as u64,
+        // ))
     }
 }
 
@@ -92,19 +105,24 @@ impl ProtocolHandler for Ping {
 
         // We can get the remote's node id from the connection.
         let node_id = connection.remote_node_id()?;
-        println!("accepted connection from {node_id}");
+        println!("server accepted connection from {node_id}");
 
         // Our protocol is a simple request-response protocol, so we expect the
         // connecting peer to open a single bi-directional stream.
         let (mut send, mut recv) = connection.accept_bi().await?;
+        println!("server accepted bidir stream");
 
         let req = recv.read_to_end(4).await.map_err(AcceptError::from_err)?;
         assert_eq!(&req, b"PING");
+
+        println!("the server read ping");
 
         // send back "PONG" bytes
         send.write_all(b"PONG")
             .await
             .map_err(AcceptError::from_err)?;
+
+        println!("server wrote pong to client");
 
         // // By calling `finish` on the send stream we signal that we will not send anything
         // // further, which makes the receive stream on the other end terminate.
@@ -116,6 +134,10 @@ impl ProtocolHandler for Ping {
 
         // increment count of pings we've received
         metrics.pings_recv.inc();
+
+        loop {
+            sleep(Duration::from_secs(10)).await;
+        }
 
         Ok(())
     }

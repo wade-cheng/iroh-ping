@@ -1,10 +1,10 @@
 use std::str::FromStr;
 
 use anyhow::{Error, Result};
+use iroh::Watcher;
 use iroh::{protocol::Router, Endpoint, NodeAddr};
 use iroh_base::ticket::NodeTicket;
 use iroh_ping::{Ping, ALPN as PingALPN};
-use n0_watcher::Watcher;
 
 /// Return whether our process is a client.
 ///
